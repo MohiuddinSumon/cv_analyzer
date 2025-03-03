@@ -231,9 +231,9 @@ class CVAnalyzer:
         You are a CV analysis expert. Extract the following structured information from the CV text below:
         
         1. Personal Information (name, email, phone, location)
-        2. Education History (institution, degree, field, graduation_date)
+        2. Education History [(institution, degree, field, graduation_date)]
         3. Work Experience (company, role, duration, responsibilities, achievements)
-        4. Skills (technical, soft, languages)
+        4. Skills ([technical], [soft], [languages])
         5. Projects (name, description, technologies)
         6. Certifications (name, issuer, date)
         
@@ -434,38 +434,56 @@ class CVQueryEngine:
         # Create a compact representation of CVs for context
         cv_summary = {}
         for cv_id, cv_data in all_cvs.items():
-            name = cv_data.get("personal_information", {}).get(
-                "name", f"Candidate {cv_id}"
+            # Handle both formats: "personal_information" and "Personal Information"
+            personal_info = cv_data.get(
+                "personal_information", cv_data.get("Personal Information", {})
             )
 
-            # Extract key skills
-            skills = []
-            for skill_category, skill_list in cv_data.get("skills", {}).items():
-                if isinstance(skill_list, list):
-                    skills.extend(skill_list[:5])  # Limit to top 5 skills per category
+            name = personal_info.get("name", f"Candidate {cv_id}")
 
-            # Extract latest work experience
+            # Extract key skills - handle both formats
+            skills = []
+            skills_data = cv_data.get("skills", cv_data.get("Skills", {}))
+
+            for skill_category, skill_list in skills_data.items():
+                if isinstance(skill_list, list):
+                    skills.extend(
+                        skill_list[:15]
+                    )  # Increased limit to 15 skills per category
+
+            # Extract latest work experience - handle both formats
             latest_work = "No work experience"
-            work_exp = cv_data.get("work_experience", [])
+            work_exp = cv_data.get(
+                "work_experience", cv_data.get("Work Experience", [])
+            )
+
             if work_exp:
                 latest = work_exp[0]
-                latest_work = f"{latest.get('role', 'Role')} at {latest.get('company', 'Company')}"
+                role = latest.get("role", "Role")
+                company = latest.get("company", "Company")
+                latest_work = f"{role} at {company}"
 
-            # Extract latest education
+            # Extract latest education - handle both formats
             latest_edu = "No education information"
-            education = cv_data.get("education_history", [])
+            education = cv_data.get(
+                "education_history", cv_data.get("Education History", [])
+            )
+
             if education:
                 latest = education[0]
-                latest_edu = f"{latest.get('degree', 'Degree')} in {latest.get('field', 'Field')} from {latest.get('institution', 'Institution')}"
+                degree = latest.get("degree", "Degree")
+                field = latest.get("field", "Field")
+                institution = latest.get("institution", "Institution")
+                latest_edu = f"{degree} in {field} from {institution}"
 
             cv_summary[cv_id] = {
                 "name": name,
                 "latest_work": latest_work,
                 "latest_education": latest_edu,
-                "top_skills": skills[:10],  # Limit to top 10 skills overall
+                "top_skills": skills[:30],  # Increased overall limit to 30 skills
             }
 
-        print(f"CV summary: {json.dumps(cv_summary, indent=2)}")
+        # print(f"CV summary: {json.dumps(cv_summary, indent=2)}")
 
         # Prepare the conversation for the LLM
         system_prompt = f"""
@@ -576,8 +594,12 @@ class CVAnalysisSystem:
     def process_cv_file(self, file_path: str) -> str:
         """Process a CV file and store its structured information."""
         try:
-            # Generate a unique ID for the CV
-            cv_id = os.path.basename(file_path).split(".")[0]
+            # Generate a unique ID for the CV - remove 'temp_' prefix if present
+            base_filename = os.path.basename(file_path)
+            if base_filename.startswith("temp_"):
+                base_filename = base_filename[5:]  # Remove the 'temp_' prefix
+
+            cv_id = base_filename.split(".")[0]
 
             # Check if this CV has already been processed
             if self.cv_database.get_cv(cv_id):
@@ -690,7 +712,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
             st.write("No CVs processed yet")
 
     # Main area for chat interface
-    st.header("CV Query Assistant")
+    # st.header("CV Query Assistant")
 
     # Display chat history
     for i, (query, response) in enumerate(st.session_state.chat_history):
@@ -698,21 +720,21 @@ def run_web_interface(llm_provider="gemini", api_key=None):
         message(response, key=f"assistant_{i}")
 
     # Chat input
-    user_query = st.text_input("Ask a question about the CVs:", key="user_query")
+    user_query = st.chat_input("Ask a question about the Candidates:", key="user_query")
 
-    if st.button("Send") or (
-        user_query and user_query != st.session_state.get("last_query", "")
-    ):
-        if user_query:
-            # Save the query to prevent duplicate processing on rerun
-            st.session_state.last_query = user_query
+    # if st.button("Send") or (
+    #     user_query and user_query != st.session_state.get("last_query", "")
+    # ):
+    if user_query:
+        # Save the query to prevent duplicate processing on rerun
+        st.session_state.last_query = user_query
 
-            with st.spinner("Processing your query..."):
-                response = st.session_state.cv_system.query_cvs(user_query)
-                st.session_state.chat_history.append((user_query, response))
+        with st.spinner("Processing your query..."):
+            response = st.session_state.cv_system.query_cvs(user_query)
+            st.session_state.chat_history.append((user_query, response))
 
-            # Clear the input after sending
-            # st.experimental_rerun()
+        # Clear the input after sending
+        st.rerun()
 
 
 if __name__ == "__main__":

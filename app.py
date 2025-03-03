@@ -704,10 +704,24 @@ def run_web_interface(llm_provider="gemini", api_key=None):
 
         if all_cvs:
             for cv_id, cv_data in all_cvs.items():
-                name = cv_data.get("personal_information", {}).get(
-                    "name", f"Candidate {cv_id}"
-                )
-                st.write(f"- {name} ({cv_id})")
+                # Extract name and email from personal information
+                personal_info = cv_data.get("personal_information", {})
+                name = personal_info.get("name", "")
+                email = personal_info.get("email", "")
+
+                # Format the display text
+                if name or email:
+                    display_text = ""
+                    if name:
+                        display_text += f"{name}"
+                    if email:
+                        display_text += f" ({email})"
+                else:
+                    display_text = f"Candidate {cv_id}"
+
+                # Create a clickable link for each CV
+                if st.sidebar.button(display_text, key=f"btn_{cv_id}"):
+                    st.session_state.selected_cv = cv_id
         else:
             st.write("No CVs processed yet")
 

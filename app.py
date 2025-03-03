@@ -705,7 +705,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
         if all_cvs:
             for cv_id, cv_data in all_cvs.items():
                 # Extract name and email from personal information
-                personal_info = cv_data.get("personal_information", {})
+                personal_info = cv_data.get("Personal Information", {})
                 name = personal_info.get("name", "")
                 email = personal_info.get("email", "")
 

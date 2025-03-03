@@ -664,6 +664,10 @@ def run_web_interface(llm_provider="gemini", api_key=None):
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
+    # Initialize selected CV state
+    if "selected_cv" not in st.session_state:
+        st.session_state.selected_cv = None
+
     st.title("CV Analysis System")
 
     # Sidebar for file upload and processing
@@ -698,7 +702,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                         # Remove the temporary file
                         os.remove(temp_file_path)
 
-        # Display the list of processed CVs
+        # Display the list of processed CVs with improved formatting
         st.header("Processed CVs")
         all_cvs = st.session_state.cv_system.cv_database.get_all_cvs()
 
@@ -723,32 +727,48 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                 if st.sidebar.button(display_text, key=f"btn_{cv_id}"):
                     st.session_state.selected_cv = cv_id
         else:
-            st.write("No CVs processed yet")
+            st.sidebar.write("No CVs processed yet")
 
-    # Main area for chat interface
-    # st.header("CV Query Assistant")
+    # Main area with tabs for chat and CV details
+    tab1, tab2 = st.tabs(["Chat Assistant", "CV Details"])
 
-    # Display chat history
-    for i, (query, response) in enumerate(st.session_state.chat_history):
-        message(query, is_user=True, key=f"user_{i}")
-        message(response, key=f"assistant_{i}")
+    with tab1:
+        # Display chat history
+        for i, (query, response) in enumerate(st.session_state.chat_history):
+            message(query, is_user=True, key=f"user_{i}")
+            message(response, key=f"assistant_{i}")
 
-    # Chat input
-    user_query = st.chat_input("Ask a question about the Candidates:", key="user_query")
+        # Chat input
+        user_query = st.chat_input(
+            "Ask a question about the Candidates:", key="user_query"
+        )
 
-    # if st.button("Send") or (
-    #     user_query and user_query != st.session_state.get("last_query", "")
-    # ):
-    if user_query:
-        # Save the query to prevent duplicate processing on rerun
-        st.session_state.last_query = user_query
+        if user_query:
+            # Save the query to prevent duplicate processing on rerun
+            st.session_state.last_query = user_query
 
-        with st.spinner("Processing your query..."):
-            response = st.session_state.cv_system.query_cvs(user_query)
-            st.session_state.chat_history.append((user_query, response))
+            with st.spinner("Processing your query..."):
+                response = st.session_state.cv_system.query_cvs(user_query)
+                st.session_state.chat_history.append((user_query, response))
 
-        # Clear the input after sending
-        st.rerun()
+            # Clear the input after sending
+            st.rerun()
+
+    with tab2:
+        if st.session_state.selected_cv:
+            cv_id = st.session_state.selected_cv
+            cv_data = st.session_state.cv_system.get_cv_details(cv_id)
+
+            if cv_data:
+                st.header(f"CV Details: {cv_id}")
+
+                # Display formatted JSON
+                st.json(cv_data)
+
+                # Add option to view original document if needed in the future
+                st.write("Note: Original document viewer could be added here")
+        else:
+            st.info("Select a CV from the sidebar to view details")
 
 
 if __name__ == "__main__":

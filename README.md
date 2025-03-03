@@ -1,27 +1,50 @@
 # CV Analysis System
 
-A comprehensive system for processing, analyzing, and querying CV/resume documents using OCR and LLMs.
+A comprehensive system for processing, analyzing, and querying CV/resume documents using OCR and LLMs. Transform your recruitment workflow with AI-powered candidate analysis.
 
 ## Features
 
-- **Document Processing**: Handle PDF and Word documents with OCR capabilities
-- **Information Extraction**: Extract structured data from CVs using AI
+- **Document Processing**: Handle PDF and Word documents with advanced OCR capabilities
+- **Information Extraction**: Extract structured data from CVs using AI models
 - **Natural Language Querying**: Ask questions about candidates in plain English
 - **Web Interface**: User-friendly Streamlit application for uploading and analyzing CVs
-- **Multi-model Support**: Works with Claude or GPT models
+- **Multi-model Support**: Works with Claude, GPT, and Gemini models
+- **Interactive CV Viewing**: View extracted CV information in structured format
+- **Conversation Memory**: System remembers context for follow-up questions
+
+## Use Cases & Benefits
+
+### For Recruiters
+- **Time Savings**: Reduce CV review time by up to 75% through automated information extraction
+- **Consistent Evaluation**: Standardize candidate information for fair comparison
+- **Better Matching**: Quickly identify candidates with specific skills or experience
+- **Insights Discovery**: Uncover patterns and connections in candidate data through natural language queries
+
+### For HR Teams
+- **Centralized Database**: Keep all candidate information in one organized system
+- **Collaborative Hiring**: Share insights with team members through the intuitive interface
+- **Reduced Bias**: Focus on skills and qualifications with structured data
+- **Efficient Screening**: Pre-screen candidates at scale with intelligent queries
+
+### For Organizations
+- **Improved Hiring Efficiency**: Decrease time-to-hire by streamlining CV analysis
+- **Better Talent Identification**: Discover ideal candidates that might be overlooked in manual processes
+- **Scalable Recruitment**: Process hundreds of CVs quickly during high-volume hiring periods
+- **Data-Driven Decisions**: Base hiring decisions on comprehensive candidate analysis
 
 ## Requirements
 
 - Python 3.8+
 - Tesseract OCR
-- LLM API key (Anthropic Claude or OpenAI GPT)
+- LLM API key (Anthropic Claude, OpenAI GPT, or Google Gemini)
+- Poppler (for PDF processing)
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/cv-analysis-system.git
-cd cv-analysis-system
+git clone https://github.com/MohiuddinSumon/cv_analyzer.git
+cd cv_analyzer
 ```
 
 2. Create and activate a virtual environment:
@@ -63,15 +86,20 @@ pip install -r requirements.txt
 ```
 
 4. Install Tesseract OCR:
-   - **Ubuntu**: `sudo apt-get install tesseract-ocr`
-   - **macOS**: `brew install tesseract`
-   - **Windows**: Download from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+   - **Ubuntu**: `sudo apt-get install tesseract-ocr poppler-utils`
+   - **macOS**: `brew install tesseract poppler`
+   - **Windows**: 
+     - Download Tesseract from [GitHub](https://github.com/UB-Mannheim/tesseract/wiki)
+     - Add Tesseract to your PATH environment variable
+     - Download Poppler binaries for Windows
 
-5. Create a `.env` file with your API keys:
+5. Create a `.env` file with your API keys (choose one):
 ```
 ANTHROPIC_API_KEY=your_anthropic_api_key
 # or
 OPENAI_API_KEY=your_openai_api_key
+# or
+GOOGLE_API_KEY=your_google_api_key
 ```
 
 ## Usage
@@ -90,12 +118,32 @@ streamlit run app.py
 5. Process the CVs using the "Process CVs" button
 
 6. Use the chat interface to query information about candidates:
-   - "Find candidates with Python experience"
-   - "Who has a Master's degree in Computer Science?"
-   - "Compare John and Sarah's skills"
-   - "Which candidate has the most experience in machine learning?"
 
-7. When you're done, deactivate the virtual environment:
+### Example Queries
+
+#### Basic Queries
+- "Find candidates with Python experience"
+- "Who has a Master's degree in Computer Science?"
+- "Which candidates have worked at tech startups?"
+
+#### Comparison Queries
+- "Compare John and Sarah's skills"
+- "Who has more years of experience in data science?"
+- "Which candidate is better suited for a DevOps role?"
+
+#### Analysis Queries
+- "What skills are most common among the candidates?"
+- "Which candidate has the most diverse technical background?"
+- "Rank the candidates for a senior software engineer position"
+
+#### Detailed Queries
+- "What projects has Alex worked on involving machine learning?"
+- "Tell me about Maria's leadership experience"
+- "Which candidates have both cloud computing and cybersecurity skills?"
+
+7. View detailed CV information by clicking on a candidate name in the sidebar
+
+8. When you're done, deactivate the virtual environment:
 ```bash
 deactivate
 ```
@@ -109,9 +157,10 @@ cv-analysis-system/
 ├── .env                    # Environment variables (API keys)
 ├── .venv/                  # Virtual environment directory
 ├── cv_database.json        # Database file for stored CV data
-├── sample_cvs/             # Sample CV files for testing
-│   ├── candidate1.pdf
-│   └── candidate2.docx
+├── data
+│    └── sample_cvs/             # Sample CV files for testing
+│        ├── candidate1.pdf
+│        └── candidate2.docx
 └── README.md               # This file
 ```
 
@@ -119,28 +168,66 @@ cv-analysis-system/
 
 1. **Document Processing**: 
    - Extracts text from PDFs and Word documents
-   - Uses OCR for scanned documents or images
-   - Preprocesses images for better OCR results
+   - Uses OCR for scanned documents or images with adaptive thresholding
+   - Handles complex document layouts and formatting
 
 2. **Information Extraction**:
-   - Sends CV text to LLM (Claude or GPT)
+   - Sends CV text to LLM (Claude, GPT, or Gemini)
    - Uses prompt engineering to extract structured information
-   - Organizes data into categories (personal info, education, experience, skills, etc.)
+   - Organizes data into categories:
+     - Personal information (name, contact details)
+     - Education history
+     - Work experience
+     - Skills (technical, soft, languages)
+     - Projects
+     - Certifications
 
 3. **Data Storage**:
    - Stores structured CV data in a JSON database
-   - Allows for efficient retrieval and querying
+   - Maintains efficient indexing for quick retrieval
+   - Persists data between application sessions
 
 4. **Query Interface**:
-   - Uses LLM to interpret natural language queries
+   - Uses LLM to interpret natural language queries about candidates
    - Maintains conversation context for follow-up questions
-   - Returns relevant information about candidates
+   - Provides informative responses based on candidate data
+   - Supports comparison of multiple candidates
+
+5. **CV Viewer**:
+   - Displays structured CV information in an easy-to-read format
+   - Allows quick navigation between different candidates
+   - Presents complete candidate profiles
+
+## Technical Details
+
+The system uses a modular architecture with several key components:
+
+- **CVProcessor**: Handles document processing with fallback methods for difficult documents
+- **CVAnalyzer**: Extracts structured information using LLM models
+- **CVDatabase**: Manages data storage and retrieval
+- **CVQueryEngine**: Processes natural language queries about candidates
+- **Streamlit Interface**: Provides a user-friendly web interface
 
 ## Customization
 
 - **OCR Engine**: You can modify the OCR engine in the `CVProcessor` class
-- **LLM Provider**: Choose between Anthropic Claude and OpenAI GPT in the `CVAnalyzer` class
+- **LLM Provider**: Choose between Anthropic Claude, OpenAI GPT, or Google Gemini
 - **Database Storage**: Change the storage format in the `CVDatabase` class
+- **UI Customization**: Extend the Streamlit interface to add custom features
+
+## Performance Considerations
+
+- OCR processing is resource-intensive for large documents
+- LLM API calls incur costs based on your provider's pricing
+- Processing speed depends on document complexity and selected models
+
+## Future Enhancements
+
+- CV similarity scoring
+- Candidate recommendation engine
+- Skills gap analysis
+- Integration with applicant tracking systems
+- Export to common HR formats
 
 ## License
 

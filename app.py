@@ -90,7 +90,7 @@ class CVProcessor:
             except Exception as e:
                 logger.error(f"OCR processing failed: {str(e)}")
                 # Keep the original text if OCR fails
-        print(f"Extracted texts from PDF {text}")
+        # print(f"Extracted texts from PDF {text}")
         return text
 
     def _extract_text_with_ocr(self, file_path: str) -> str:
@@ -165,7 +165,7 @@ class CVProcessor:
                     text += "\n"
 
             logger.info(f"Extracted {len(text)} characters from DOCX {file_path}")
-            print(f"Extracted texts from DOCX {text}")
+            # print(f"Extracted texts from DOCX {text}")
             return text
         except Exception as e:
             logger.error(f"Error extracting text from DOCX {file_path}: {str(e)}")
@@ -197,7 +197,7 @@ class CVProcessor:
 class CVAnalyzer:
     """Uses LLM to extract structured information from CV text."""
 
-    def __init__(self, llm_provider="anthropic", api_key=None):
+    def __init__(self, llm_provider="gemini", api_key=None):
         """Initialize the CV analyzer with the specified LLM provider."""
         self.llm_provider = llm_provider
 
@@ -209,6 +209,16 @@ class CVAnalyzer:
         elif llm_provider == "openai":
             self.client = openai.OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
             self.model = "gpt-4"
+        elif llm_provider == "gemini":
+            # Import Google's Gemini library
+            import google.generativeai as genai
+
+            # Configure the Gemini API with your API key
+            genai.configure(api_key=api_key or os.getenv("GOOGLE_API_KEY"))
+
+            # Store the genai module for later use
+            self.genai = genai
+            self.model = "gemini-2.0-flash"
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
@@ -251,6 +261,26 @@ class CVAnalyzer:
                     max_tokens=4000,
                 )
                 result = response.choices[0].message.content
+            elif self.llm_provider == "gemini":
+                # Generate content using Gemini
+                generation_config = {
+                    "temperature": 0.2,
+                    "top_p": 0.95,
+                    "top_k": 0,
+                    "max_output_tokens": 4000,
+                }
+
+                # Initialize the model
+                model = self.genai.GenerativeModel(
+                    model_name=self.model, generation_config=generation_config
+                )
+
+                # Send the prompt directly as a string, not as a structured message
+                response = model.generate_content(prompt)
+
+                # Extract the text from the response
+                result = response.text
+                print(f"LLM Gemini Response: {result}")
 
             # Extract JSON from the response
             json_match = re.search(r"```json\n([\s\S]*?)\n```", result)
@@ -360,7 +390,7 @@ class CVDatabase:
 class CVQueryEngine:
     """Handles natural language queries about the CV database."""
 
-    def __init__(self, cv_database: CVDatabase, llm_provider="anthropic", api_key=None):
+    def __init__(self, cv_database: CVDatabase, llm_provider="gemini", api_key=None):
         """Initialize the query engine with the CV database and LLM provider."""
         self.cv_database = cv_database
         self.llm_provider = llm_provider
@@ -374,6 +404,16 @@ class CVQueryEngine:
         elif llm_provider == "openai":
             self.client = openai.OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
             self.model = "gpt-4"
+        elif llm_provider == "gemini":
+            # Import Google's Gemini library
+            import google.generativeai as genai
+
+            # Configure the Gemini API with your API key
+            genai.configure(api_key=api_key or os.getenv("GOOGLE_API_KEY"))
+
+            # Store the genai module for later use
+            self.genai = genai
+            self.model = "gemini-2.0-flash"
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
@@ -425,6 +465,8 @@ class CVQueryEngine:
                 "top_skills": skills[:10],  # Limit to top 10 skills overall
             }
 
+        print(f"CV summary: {json.dumps(cv_summary, indent=2)}")
+
         # Prepare the conversation for the LLM
         system_prompt = f"""
         You are a CV analysis assistant. You have access to {len(all_cvs)} CV profiles with the following summary information:
@@ -454,6 +496,52 @@ class CVQueryEngine:
                     model=self.model, messages=messages, max_tokens=2000
                 )
                 result = response.choices[0].message.content
+            elif self.llm_provider == "gemini":
+                # Create a properly formatted conversation history for Gemini
+                gemini_messages = []
+
+                # Add system prompt as a user message at the beginning
+                gemini_messages.append({"role": "user", "parts": [system_prompt]})
+
+                # Add a placeholder response from the model to acknowledge the system prompt
+                gemini_messages.append(
+                    {
+                        "role": "model",
+                        "parts": [
+                            "I understand the CV profiles and will provide helpful responses."
+                        ],
+                    }
+                )
+
+                # Add the conversation context
+                for message in self.conversation_context:
+                    role = "user" if message["role"] == "user" else "model"
+                    gemini_messages.append(
+                        {"role": role, "parts": [message["content"]]}
+                    )
+
+                # Generate content using Gemini
+                generation_config = {
+                    "temperature": 0.2,
+                    "top_p": 0.95,
+                    "top_k": 0,
+                    "max_output_tokens": 2000,
+                }
+
+                # Initialize the model
+                model = self.genai.GenerativeModel(
+                    model_name=self.model, generation_config=generation_config
+                )
+
+                # Start a chat and send the full history
+                chat = model.start_chat(
+                    history=gemini_messages[:-1]
+                )  # Exclude the last user message
+                response = chat.send_message(
+                    gemini_messages[-1]["parts"][0]
+                )  # Send the last user message
+
+                result = response.text
 
             # Add the response to the context
             self.add_to_context("assistant", result)
@@ -473,7 +561,7 @@ class CVAnalysisSystem:
     def __init__(
         self,
         ocr_engine="tesseract",
-        llm_provider="anthropic",
+        llm_provider="gemini",
         api_key=None,
         storage_path="cv_database.json",
     ):
@@ -540,14 +628,14 @@ class CVAnalysisSystem:
 
 
 # Streamlit web interface
-def run_web_interface():
+def run_web_interface(llm_provider="gemini", api_key=None):
     """Run the Streamlit web interface for the CV analysis system."""
     st.set_page_config(page_title="CV Analysis System", layout="wide")
 
     # Initialize the CV analysis system
     if "cv_system" not in st.session_state:
         st.session_state.cv_system = CVAnalysisSystem(
-            llm_provider="anthropic", api_key=os.getenv("ANTHROPIC_API_KEY")
+            llm_provider=llm_provider, api_key=api_key
         )
 
     # Initialize chat history
@@ -624,20 +712,30 @@ def run_web_interface():
                 st.session_state.chat_history.append((user_query, response))
 
             # Clear the input after sending
-            st.experimental_rerun()
+            # st.experimental_rerun()
 
 
 if __name__ == "__main__":
 
     load_dotenv()
 
-    # Example usage
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+    # Try to get Google API key first
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
-        print("Please set the ANTHROPIC_API_KEY environment variable")
+        print("GOOGLE_API_KEY not found. Checking for ANTHROPIC_API_KEY...")
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        llm_provider = "anthropic"
+    else:
+        llm_provider = "gemini"
+
+    if not api_key:
+        print(
+            "Please set either GOOGLE_API_KEY or ANTHROPIC_API_KEY environment variable"
+        )
         exit(1)
 
-    cv_system = CVAnalysisSystem(llm_provider="anthropic", api_key=api_key)
+    print(f"Using {llm_provider} as the LLM provider")
+    cv_system = CVAnalysisSystem(llm_provider=llm_provider, api_key=api_key)
 
     # Process a directory of CVs
     # cv_dir = "data/sample_cvs"
@@ -647,4 +745,4 @@ if __name__ == "__main__":
     #     print(f"Processed {len(processed_ids)} CVs")
 
     # Run the web interface
-    run_web_interface()
+    run_web_interface(llm_provider=llm_provider, api_key=api_key)

@@ -37,58 +37,114 @@ class CVProcessor:
         self.ocr_engine = ocr_engine
         # Configure OCR
         if ocr_engine == "tesseract":
-            pytesseract.pytesseract.tesseract_cmd = (
-                r"/usr/bin/tesseract"  # Update this path as needed
-            )
+            # Try to auto-detect Tesseract path or use environment variable
+            try:
+                pytesseract.get_tesseract_version()
+                logger.info("Tesseract found in system PATH")
+            except:
+                # Check common installation paths
+                common_paths = [
+                    r"/usr/bin/tesseract",
+                    r"/usr/local/bin/tesseract",
+                    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                    os.environ.get("TESSERACT_PATH"),
+                ]
+
+                for path in common_paths:
+                    if path and os.path.exists(path):
+                        pytesseract.pytesseract.tesseract_cmd = path
+                        logger.info(f"Tesseract found at: {path}")
+                        break
+                else:
+                    logger.warning("Tesseract not found. OCR may fail.")
 
     def extract_text_from_pdf(self, file_path: str) -> str:
-        """Extract text from PDF files using OCR if needed."""
+        """Extract text from PDF files using multiple methods."""
+        text = ""
+
+        # Method 1: Direct text extraction
         try:
-            # First try direct text extraction
             with open(file_path, "rb") as file:
                 reader = PyPDF2.PdfReader(file)
-                text = ""
                 for page in reader.pages:
                     page_text = page.extract_text()
-                    if page_text.strip():
+                    if page_text:
                         text += page_text + "\n"
 
-                # If direct extraction yields minimal text, use OCR
-                if len(text.strip()) < 100:
-                    logger.info(
-                        f"Using OCR for {file_path} as direct extraction yielded minimal text"
-                    )
-                    return self._extract_text_with_ocr(file_path)
-                return text
-
+                logger.info(
+                    f"Direct extraction from {file_path}: {len(text)} characters"
+                )
         except Exception as e:
-            logger.error(f"Error extracting text from PDF {file_path}: {str(e)}")
-            # Fallback to OCR
-            return self._extract_text_with_ocr(file_path)
+            logger.error(f"Error in direct PDF extraction: {str(e)}")
+
+        # Method 2: If direct extraction failed or yielded minimal text, try OCR
+        if len(text.strip()) < 50:  # Lower threshold
+            try:
+                logger.info(f"Using OCR for {file_path}")
+                ocr_text = self._extract_text_with_ocr(file_path)
+
+                # If OCR yields more text, use it
+                if len(ocr_text.strip()) > len(text.strip()):
+                    text = ocr_text
+                    logger.info(f"OCR produced better results: {len(text)} characters")
+            except Exception as e:
+                logger.error(f"OCR processing failed: {str(e)}")
+                # Keep the original text if OCR fails
+        print(f"Extracted texts from PDF {text}")
+        return text
 
     def _extract_text_with_ocr(self, file_path: str) -> str:
-        """Extract text from PDF using OCR."""
+        """Extract text from PDF using OCR with better error handling."""
+        text = ""
         try:
-            # Convert PDF to images
-            images = convert_from_path(file_path)
-            text = ""
+            # Check if poppler is available for pdf2image
+            try:
+                # Convert PDF to images
+                images = convert_from_path(file_path)
+            except Exception as e:
+                logger.error(f"Error converting PDF to images: {str(e)}")
+                logger.info(
+                    "Ensure poppler is installed. On Ubuntu: sudo apt-get install poppler-utils"
+                )
+                return ""
 
             for i, image in enumerate(images):
                 # Convert PIL image to OpenCV format
                 open_cv_image = np.array(image)
-                open_cv_image = open_cv_image[
-                    :, :, ::-1
-                ].copy()  # RGB to BGR conversion
 
-                # Preprocess image for better OCR results
-                gray = cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2GRAY)
+                # Handle both RGB and grayscale images
+                if len(open_cv_image.shape) == 3:
+                    open_cv_image = open_cv_image[
+                        :, :, ::-1
+                    ].copy()  # RGB to BGR conversion
+                    gray = cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2GRAY)
+                else:
+                    gray = open_cv_image.copy()
+
+                # Try different preprocessing techniques
+                # 1. Simple thresholding
                 thresh = cv2.threshold(
                     gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
                 )[1]
 
                 # Perform OCR
                 page_text = pytesseract.image_to_string(thresh)
+
+                # If results are poor, try adaptive thresholding
+                if len(page_text.strip()) < 50:
+                    logger.info(f"Trying adaptive threshold for page {i+1}")
+                    adaptive_thresh = cv2.adaptiveThreshold(
+                        gray,
+                        255,
+                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                        cv2.THRESH_BINARY,
+                        11,
+                        2,
+                    )
+                    page_text = pytesseract.image_to_string(adaptive_thresh)
+
                 text += page_text + "\n"
+                logger.info(f"Extracted {len(page_text)} characters from page {i+1}")
 
             return text
         except Exception as e:
@@ -96,10 +152,20 @@ class CVProcessor:
             return ""
 
     def extract_text_from_docx(self, file_path: str) -> str:
-        """Extract text from DOCX files."""
+        """Extract text from DOCX files with better error handling."""
         try:
             doc = docx.Document(file_path)
             text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+
+            # Also extract text from tables if present
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        text += cell.text + " "
+                    text += "\n"
+
+            logger.info(f"Extracted {len(text)} characters from DOCX {file_path}")
+            print(f"Extracted texts from DOCX {text}")
             return text
         except Exception as e:
             logger.error(f"Error extracting text from DOCX {file_path}: {str(e)}")
@@ -107,11 +173,21 @@ class CVProcessor:
 
     def process_document(self, file_path: str) -> str:
         """Process a document and extract its text content."""
+        if not os.path.exists(file_path):
+            logger.error(f"File not found: {file_path}")
+            return ""
+
         file_extension = os.path.splitext(file_path)[1].lower()
+
+        logger.info(f"Processing document: {file_path} with extension {file_extension}")
 
         if file_extension == ".pdf":
             return self.extract_text_from_pdf(file_path)
         elif file_extension in [".docx", ".doc"]:
+            if file_extension == ".doc":
+                logger.warning(
+                    ".doc format requires conversion to .docx for best results"
+                )
             return self.extract_text_from_docx(file_path)
         else:
             logger.error(f"Unsupported file format: {file_extension}")
@@ -564,11 +640,11 @@ if __name__ == "__main__":
     cv_system = CVAnalysisSystem(llm_provider="anthropic", api_key=api_key)
 
     # Process a directory of CVs
-    cv_dir = "data/sample_cvs"
-    if os.path.exists(cv_dir):
-        print(f"Processing CVs in {cv_dir}...")
-        processed_ids = cv_system.process_cv_directory(cv_dir)
-        print(f"Processed {len(processed_ids)} CVs")
+    # cv_dir = "data/sample_cvs"
+    # if os.path.exists(cv_dir):
+    #     print(f"Processing CVs in {cv_dir}...")
+    #     processed_ids = cv_system.process_cv_directory(cv_dir)
+    #     print(f"Processed {len(processed_ids)} CVs")
 
     # Run the web interface
     run_web_interface()

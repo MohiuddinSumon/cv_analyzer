@@ -1,0 +1,19 @@
+# Document processing
+PyPDF2
+python-docx
+pdf2image
+pytesseract
+opencv-python
+numpy
+
+# LLM integration
+anthropic
+openai
+tenacity
+
+# Web interface
+streamlit
+streamlit-chat
+
+# Utilities
+python-dotenv

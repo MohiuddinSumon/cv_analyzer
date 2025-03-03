@@ -440,6 +440,9 @@ class CVQueryEngine:
             )
 
             name = personal_info.get("name", f"Candidate {cv_id}")
+            email = personal_info.get("email", "No email provided")
+            phone = personal_info.get("phone", "No phone number provided")
+            location = personal_info.get("location", "Unknown location")
 
             # Extract key skills - handle both formats
             skills = []
@@ -478,6 +481,9 @@ class CVQueryEngine:
 
             cv_summary[cv_id] = {
                 "name": name,
+                "email": email,
+                "phone": phone,
+                "location": location,
                 "latest_work": latest_work,
                 "latest_education": latest_edu,
                 "top_skills": skills[:30],  # Increased overall limit to 30 skills

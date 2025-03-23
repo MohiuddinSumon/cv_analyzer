@@ -7,10 +7,14 @@ A comprehensive system for processing, analyzing, and querying CV/resume documen
 - **Document Processing**: Handle PDF and Word documents with advanced OCR capabilities
 - **Information Extraction**: Extract structured data from CVs using AI models
 - **Natural Language Querying**: Ask questions about candidates in plain English
-- **Web Interface**: User-friendly Streamlit application for uploading and analyzing CVs
+- **Web Interface**: User-friendly Streamlit application with multiple functionality tabs
 - **Multi-model Support**: Works with Claude, GPT, and Gemini models
 - **Interactive CV Viewing**: View extracted CV information in structured format
 - **Conversation Memory**: System remembers context for follow-up questions
+- **Profile Management**: Create and manage your own professional profile
+- **Job Analysis**: Analyze job descriptions and generate matching scores
+- **Cover Letter Generation**: Auto-generate customized cover letters
+- **Resume Editor**: Interactive interface for updating resume content
 
 ## Use Cases & Benefits
 
@@ -31,6 +35,13 @@ A comprehensive system for processing, analyzing, and querying CV/resume documen
 - **Better Talent Identification**: Discover ideal candidates that might be overlooked in manual processes
 - **Scalable Recruitment**: Process hundreds of CVs quickly during high-volume hiring periods
 - **Data-Driven Decisions**: Base hiring decisions on comprehensive candidate analysis
+
+### For Job Seekers
+- **Profile Management**: Maintain your professional profile and resume in one place
+- **Job Match Analysis**: Get detailed analysis of your fit for specific job postings
+- **Automated Cover Letters**: Generate customized cover letters based on job descriptions
+- **Resume Enhancement**: Edit and improve your resume with an interactive interface
+- **Application History**: Track your job applications and analyses
 
 ## Requirements
 
@@ -117,29 +128,39 @@ streamlit run app.py
 
 5. Process the CVs using the "Process CVs" button
 
-6. Use the chat interface to query information about candidates:
+6. Use the various tabs for different functionalities:
 
-### Example Queries
+### Tab Features
 
-#### Basic Queries
-- "Find candidates with Python experience"
-- "Who has a Master's degree in Computer Science?"
-- "Which candidates have worked at tech startups?"
+#### Chat Assistant
+- Query CV information using natural language
+- View conversation history
+- Get insights about candidates
 
-#### Comparison Queries
-- "Compare John and Sarah's skills"
-- "Who has more years of experience in data science?"
-- "Which candidate is better suited for a DevOps role?"
+#### CV Details
+- View structured CV information
+- Access detailed candidate profiles
+- Review extracted data in JSON format
 
-#### Analysis Queries
-- "What skills are most common among the candidates?"
-- "Which candidate has the most diverse technical background?"
-- "Rank the candidates for a senior software engineer position"
+#### Profile
+- Upload and manage your personal resume
+- Add professional links (Portfolio, GitHub, LinkedIn)
+- Include additional information
+- View analyzed profile information
 
-#### Detailed Queries
-- "What projects has Alex worked on involving machine learning?"
-- "Tell me about Maria's leadership experience"
-- "Which candidates have both cloud computing and cybersecurity skills?"
+#### Job Analysis
+- Input job descriptions manually or via URL
+- Get detailed job match analysis
+- Generate customized cover letters
+- Track application history
+- Download analyses and cover letters
+- Compare your profile against job requirements
+
+#### Resume Editor
+- Edit personal information interactively
+- Update skills and experience
+- Modify work history details
+- Save changes in real-time
 
 7. View detailed CV information by clicking on a candidate name in the sidebar
 

@@ -736,7 +736,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
             st.sidebar.write("No CVs processed yet")
 
     # Main area with tabs for chat and CV details
-    tab1, tab2 = st.tabs(["Chat Assistant", "CV Details"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Chat Assistant", "CV Details", "Profile", "Job Analysis", "Resume Editor"])
 
     with tab1:
         # Display chat history
@@ -775,6 +775,186 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                 st.write("Note: Original document viewer could be added here")
         else:
             st.info("Select a CV from the sidebar to view details")
+
+    with tab3:
+        st.header("My Profile")
+        
+        # Initialize profile data in session state if not exists
+        if "profile_data" not in st.session_state:
+            st.session_state.profile_data = {
+                "resume_id": None,
+                "portfolio_link": "",
+                "github_link": "",
+                "linkedin_link": "",
+                "additional_info": ""
+            }
+
+        # Profile Resume Upload
+        st.subheader("My Resume")
+        profile_resume = st.file_uploader(
+            "Upload your resume", type=["pdf", "docx", "doc"], key="profile_resume"
+        )
+        
+        if profile_resume:
+            if st.button("Process My Resume"):
+                with st.spinner("Processing your resume..."):
+                    # Save the uploaded file temporarily
+                    temp_file_path = f"temp_{profile_resume.name}"
+                    with open(temp_file_path, "wb") as f:
+                        f.write(profile_resume.getbuffer())
+
+                    # Process the CV
+                    cv_id = st.session_state.cv_system.process_cv_file(temp_file_path)
+                    
+                    if cv_id:
+                        st.session_state.profile_data["resume_id"] = cv_id
+                        st.success("Your resume has been processed successfully!")
+                    else:
+                        st.error("Failed to process your resume")
+
+                    # Remove the temporary file
+                    os.remove(temp_file_path)
+
+        # Profile Links
+        st.subheader("Professional Links")
+        st.session_state.profile_data["portfolio_link"] = st.text_input(
+            "Portfolio Link", value=st.session_state.profile_data["portfolio_link"]
+        )
+        st.session_state.profile_data["github_link"] = st.text_input(
+            "GitHub Link", value=st.session_state.profile_data["github_link"]
+        )
+        st.session_state.profile_data["linkedin_link"] = st.text_input(
+            "LinkedIn Link", value=st.session_state.profile_data["linkedin_link"]
+        )
+
+        # Additional Information
+        st.subheader("Additional Information")
+        st.session_state.profile_data["additional_info"] = st.text_area(
+            "Additional Information",
+            value=st.session_state.profile_data["additional_info"],
+            height=150
+        )
+
+        # Save Profile Button
+        if st.button("Save Profile"):
+            st.success("Profile saved successfully!")
+
+    with tab4:
+        st.header("Job Analysis")
+        
+        # Job Description Input
+        st.subheader("Job Description")
+        job_url = st.text_input("Job Posting URL (optional)")
+        job_description = st.text_area("Paste Job Description", height=200)
+        
+        if st.button("Analyze Job Match"):
+            if not job_description:
+                st.warning("Please provide a job description to analyze.")
+            elif not st.session_state.profile_data.get("resume_id"):
+                st.warning("Please upload your resume in the Profile tab first.")
+            else:
+                with st.spinner("Analyzing job match..."):
+                    # Get the profile CV data
+                    profile_cv = st.session_state.cv_system.get_cv_details(
+                        st.session_state.profile_data["resume_id"]
+                    )
+                    
+                    # Create analysis prompt
+                    analysis_prompt = f"""
+                    Analyze the following CV against the job description and provide:
+                    1. Match percentage and key strengths
+                    2. Missing skills or experience
+                    3. Specific recommendations for improvement
+                    4. Suggested resume modifications
+                    
+                    CV Data:
+                    {json.dumps(profile_cv, indent=2)}
+                    
+                    Job Description:
+                    {job_description}
+                    """
+                    
+                    # Get analysis from LLM
+                    analysis = st.session_state.cv_system.query_engine.process_query(analysis_prompt)
+                    
+                    # Display analysis
+                    st.subheader("Analysis Results")
+                    st.write(analysis)
+
+    with tab5:
+        st.header("Resume Editor")
+        
+        if not st.session_state.profile_data.get("resume_id"):
+            st.warning("Please upload your resume in the Profile tab first.")
+        else:
+            # Get the profile CV data
+            profile_cv = st.session_state.cv_system.get_cv_details(
+                st.session_state.profile_data["resume_id"]
+            )
+            
+            # Display editable sections
+            st.subheader("Edit Resume Sections")
+            
+            # Personal Information
+            st.write("Personal Information")
+            personal_info = profile_cv.get("personal_information", {})
+            edited_name = st.text_input("Name", value=personal_info.get("name", ""))
+            edited_email = st.text_input("Email", value=personal_info.get("email", ""))
+            edited_phone = st.text_input("Phone", value=personal_info.get("phone", ""))
+            edited_location = st.text_input("Location", value=personal_info.get("location", ""))
+            
+            # Skills
+            st.write("Skills")
+            skills = profile_cv.get("skills", {})
+            technical_skills = st.text_area(
+                "Technical Skills",
+                value="\n".join(skills.get("technical", [])),
+                height=100
+            )
+            soft_skills = st.text_area(
+                "Soft Skills",
+                value="\n".join(skills.get("soft", [])),
+                height=100
+            )
+            
+            # Work Experience
+            st.write("Work Experience")
+            work_exp = profile_cv.get("work_experience", [])
+            for i, exp in enumerate(work_exp):
+                with st.expander(f"Experience {i+1}"):
+                    exp["company"] = st.text_input("Company", value=exp.get("company", ""))
+                    exp["role"] = st.text_input("Role", value=exp.get("role", ""))
+                    exp["duration"] = st.text_input("Duration", value=exp.get("duration", ""))
+                    exp["responsibilities"] = st.text_area(
+                        "Responsibilities",
+                        value="\n".join(exp.get("responsibilities", [])),
+                        height=100
+                    )
+            
+            # Save Changes Button
+            if st.button("Save Changes"):
+                # Update the CV data
+                updated_cv = {
+                    "personal_information": {
+                        "name": edited_name,
+                        "email": edited_email,
+                        "phone": edited_phone,
+                        "location": edited_location
+                    },
+                    "skills": {
+                        "technical": [s.strip() for s in technical_skills.split("\n") if s.strip()],
+                        "soft": [s.strip() for s in soft_skills.split("\n") if s.strip()]
+                    },
+                    "work_experience": work_exp
+                }
+                
+                # Save to database
+                st.session_state.cv_system.cv_database.add_cv(
+                    st.session_state.profile_data["resume_id"],
+                    updated_cv
+                )
+                
+                st.success("Resume updated successfully!")
 
 
 if __name__ == "__main__":

@@ -898,13 +898,43 @@ def run_web_interface(llm_provider="gemini", api_key=None):
 
     with tab3:
         st.header("My Profile")
-        print(st.session_state)
         
         # Profile Resume Upload
         st.subheader("My Resume")
         profile_resume = st.file_uploader(
             "Upload your resume", type=["pdf", "docx", "doc"], key="profile_resume"
         )
+
+        if profile_resume:
+            with st.spinner("Processing your resume..."):
+                # Save the uploaded file temporarily
+                temp_file_path = f"temp_{profile_resume.name}"
+                with open(temp_file_path, "wb") as f:
+                    f.write(profile_resume.getbuffer())
+
+                # Process the CV
+                cv_id = st.session_state.cv_system.process_cv_file(temp_file_path)
+                
+                if cv_id:
+                    st.session_state.profile_data["resume_id"] = cv_id
+                    
+                    # Get the processed CV data
+                    profile_cv = st.session_state.cv_system.get_cv_details(cv_id)
+                    
+                    # Auto-populate links if found in the CV
+                    personal_info = profile_cv.get("personal_information".replace('_', ' ').title(), {})
+                    st.session_state.profile_data["portfolio_link"] = personal_info.get("portfolio", "")
+                    st.session_state.profile_data["github_link"] = personal_info.get("github_url", "")
+                    st.session_state.profile_data["linkedin_link"] = personal_info.get("linkedin_url", "")
+                    
+                    # Auto save to persistent storage
+                    st.session_state.cv_system.profile_database.update_profile(st.session_state.profile_data)
+                    st.success("Your resume has been processed and profile updated successfully!")
+                else:
+                    st.error("Failed to process your resume")
+
+                # Remove the temporary file
+                os.remove(temp_file_path)
 
         # Profile Links
         st.subheader("Professional Links")
@@ -928,31 +958,8 @@ def run_web_interface(llm_provider="gemini", api_key=None):
 
         # Save Profile Button
         if st.button("Save Profile"):
-            # Save to persistent storage
             st.session_state.cv_system.profile_database.update_profile(st.session_state.profile_data)
             st.success("Profile saved successfully!")
-
-        if profile_resume:
-            if st.button("Process My Resume"):
-                with st.spinner("Processing your resume..."):
-                    # Save the uploaded file temporarily
-                    temp_file_path = f"temp_{profile_resume.name}"
-                    with open(temp_file_path, "wb") as f:
-                        f.write(profile_resume.getbuffer())
-
-                    # Process the CV
-                    cv_id = st.session_state.cv_system.process_cv_file(temp_file_path)
-                    
-                    if cv_id:
-                        st.session_state.profile_data["resume_id"] = cv_id
-                        # Save to persistent storage
-                        st.session_state.cv_system.profile_database.update_profile(st.session_state.profile_data)
-                        st.success("Your resume has been processed successfully!")
-                    else:
-                        st.error("Failed to process your resume")
-
-                    # Remove the temporary file
-                    os.remove(temp_file_path)
 
         # Display analyzed profile information if available
         if st.session_state.profile_data.get("resume_id"):
@@ -962,56 +969,8 @@ def run_web_interface(llm_provider="gemini", api_key=None):
             
             if profile_cv:
                 st.subheader("Analyzed Profile Information")
-                print("PROFILE" , profile_cv)
-                # Personal Information
-                personal_info = profile_cv.get("personal_information".replace('_', ' ').title(), {})
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**Personal Information**")
-                    st.write(f"Name: {personal_info.get('name', 'N/A')}")
-                    st.write(f"Email: {personal_info.get('email', 'N/A')}")
-                with col2:
-                    st.write(f"Phone: {personal_info.get('phone', 'N/A')}")
-                    st.write(f"Location: {personal_info.get('location', 'N/A')}")
-                
-                # Skills
-                st.write("**Skills**")
-                skills = profile_cv.get("skills".title(), {})
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("Technical Skills:")
-                    for skill in skills.get("technical", []):
-                        st.write(f"- {skill}")
-                with col2:
-                    st.write("Soft Skills:")
-                    for skill in skills.get("soft", []):
-                        st.write(f"- {skill}")
-                
-                # Latest Work Experience
-                st.write("**Latest Work Experience**")
-                work_exp = profile_cv.get("work_experience".replace('_', ' ').title(), [])
-                if work_exp:
-                    for latest in work_exp:
-                        st.write(f"Company: {latest.get('company', 'N/A')}")
-                        st.write(f"Role: {latest.get('role', 'N/A')}")
-                        st.write(f"Duration: {latest.get('duration', 'N/A')}")
-                        st.write("Responsibilities:")
-                        for resp in latest.get("responsibilities", []):
-                            st.write(f"- {resp}")
-                else:
-                    st.write("No work experience found")
-                
-                # Latest Education
-                st.write("**Latest Education**")
-                education = profile_cv.get("education_history".replace('_', ' ').title(), [])
-                if education:
-                    latest = education[0]
-                    st.write(f"Institution: {latest.get('institution', 'N/A')}")
-                    st.write(f"Degree: {latest.get('degree', 'N/A')}")
-                    st.write(f"Field: {latest.get('field', 'N/A')}")
-                    st.write(f"Graduation Date: {latest.get('graduation_date', 'N/A')}")
-                else:
-                    st.write("No education information found")
+                # Display the full CV data in JSON format
+                st.json(profile_cv)
             else:
                 st.warning("Unable to load profile data. Please try uploading your resume again.")
 
@@ -1087,9 +1046,73 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                     st.subheader("Analysis Results")
                     st.write(analysis)
         
-        # Display analysis history
+        # Separate Cover Letter Generation Section
+        if job_description:  # Only show if there's a job description
+            st.subheader("Generate Cover Letter")
+            company_name = st.text_input("Company Name")
+            hiring_manager = st.text_input("Hiring Manager Name (optional)")
+            
+            if st.button("Generate Cover Letter", key="generate_cover_letter"):
+                if not st.session_state.profile_data.get("resume_id"):
+                    st.warning("Please upload your resume in the Profile tab first.")
+                else:
+                    with st.spinner("Generating cover letter..."):
+                        # Get the profile CV data
+                        profile_cv = st.session_state.cv_system.get_cv_details(
+                            st.session_state.profile_data["resume_id"]
+                        )
+                        
+                        # Get the latest analysis if available
+                        latest_analysis = ""
+                        if st.session_state.job_analysis_history:
+                            latest_analysis = st.session_state.job_analysis_history[-1].get("analysis", "")
+                        
+                        # Create cover letter prompt
+                        cover_letter_prompt = f"""
+                        Generate a professional cover letter based on the following information:
+                        
+                        Job Description:
+                        {job_description}
+                        
+                        Candidate's CV:
+                        {json.dumps(profile_cv, indent=2)}
+                        
+                        Job Analysis Results:
+                        {latest_analysis}
+                        
+                        Company Name: {company_name}
+                        Hiring Manager: {hiring_manager if hiring_manager else 'Hiring Manager'}
+                        
+                        Please create a compelling cover letter that:
+                        1. Addresses the specific job requirements
+                        2. Highlights relevant experience and skills from the CV
+                        3. Incorporates insights from the job analysis
+                        4. Uses a professional tone and format
+                        5. Is concise and impactful
+                        """
+                        
+                        # Generate cover letter using LLM
+                        cover_letter = st.session_state.cv_system.query_engine.process_query(cover_letter_prompt)
+                        
+                        # Store cover letter in the latest analysis entry
+                        if st.session_state.job_analysis_history:
+                            st.session_state.job_analysis_history[-1]["cover_letter"] = cover_letter
+                        
+                        # Display the generated cover letter
+                        st.subheader("Generated Cover Letter")
+                        st.write(cover_letter)
+                        
+                        # Add download button for the cover letter
+                        st.download_button(
+                            label="Download Cover Letter",
+                            data=cover_letter,
+                            file_name=f"cover_letter_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                            mime="text/plain"
+                        )
+
+        # Display analysis history with cover letters
         if st.session_state.job_analysis_history:
-            st.subheader("Previous Analyses")
+            st.subheader("Previous Analyses and Cover Letters")
             for entry in reversed(st.session_state.job_analysis_history):
                 with st.expander(f"Analysis from {entry['timestamp']}"):
                     if entry['job_url']:
@@ -1099,23 +1122,39 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                     st.write("**Analysis:**")
                     st.write(entry['analysis'])
                     
-                    # Download button for each analysis
-                    analysis_text = f"""
-                    Job URL: {entry['job_url']}
-                    Timestamp: {entry['timestamp']}
+                    if entry.get('cover_letter'):
+                        st.write("**Cover Letter:**")
+                        st.write(entry['cover_letter'])
                     
-                    Job Description:
-                    {entry['job_description']}
+                    # Download buttons for analysis and cover letter
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        analysis_text = f"""
+                        Job URL: {entry['job_url']}
+                        Timestamp: {entry['timestamp']}
+                        
+                        Job Description:
+                        {entry['job_description']}
+                        
+                        Analysis:
+                        {entry['analysis']}
+                        """
+                        st.download_button(
+                            label="Download Analysis",
+                            data=analysis_text,
+                            file_name=f"job_analysis_{entry['timestamp'].replace(' ', '_')}.txt",
+                            mime="text/plain"
+                        )
                     
-                    Analysis:
-                    {entry['analysis']}
-                    """
-                    st.download_button(
-                        label="Download Analysis",
-                        data=analysis_text,
-                        file_name=f"job_analysis_{entry['timestamp'].replace(' ', '_')}.txt",
-                        mime="text/plain"
-                    )
+                    if entry.get('cover_letter'):
+                        with col2:
+                            st.download_button(
+                                label="Download Cover Letter",
+                                data=entry['cover_letter'],
+                                file_name=f"cover_letter_{entry['timestamp'].replace(' ', '_')}.txt",
+                                mime="text/plain",
+                                key=f"dl_cover_letter_{entry['timestamp']}"
+                            )
 
     with tab5:
         st.header("Resume Editor")

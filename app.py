@@ -233,14 +233,14 @@ class CVAnalyzer:
         prompt = f"""
         You are a CV analysis expert. Extract the following structured information from the CV text below:
         
-        1. Personal Information (name, email, phone, location)
+        1. Personal Information (name, email, phone, location, portfolio, github_url, linkedin_url)
         2. Education History [(institution, degree, field, graduation_date)]
-        3. Work Experience (company, role, duration, responsibilities, achievements)
+        3. Work Experience [(company, role, duration, [responsibilities], [achievements])]
         4. Skills ([technical], [soft], [languages])
-        5. Projects (name, description, technologies)
-        6. Certifications (name, issuer, date)
+        5. Projects [(name, description, technologies)]
+        6. Certifications [(name, issuer, date)]
         
-        Return the information in JSON format with these exact categories. If any information is not found, include the category with an empty value or array.
+        Return the information in JSON format with these exact categories. If any information is not found, include the category with an empty value or array. Follow the formatting of the data. 
         
         CV Text:
         {cv_text}
@@ -388,6 +388,43 @@ class CVDatabase:
                     break
 
         return results
+
+
+class ProfileDatabase:
+    """Stores and manages user profile information."""
+
+    def __init__(self, storage_path="profile_database.json"):
+        """Initialize the profile database with the specified storage path."""
+        self.storage_path = storage_path
+        self.profile_data = {}
+        self.load_database()
+
+    def load_database(self):
+        """Load the profile database from storage."""
+        try:
+            if os.path.exists(self.storage_path):
+                with open(self.storage_path, "r") as file:
+                    self.profile_data = json.load(file)
+        except Exception as e:
+            logger.error(f"Error loading profile database: {str(e)}")
+            self.profile_data = {}
+
+    def save_database(self):
+        """Save the profile database to storage."""
+        try:
+            with open(self.storage_path, "w") as file:
+                json.dump(self.profile_data, file, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving profile database: {str(e)}")
+
+    def get_profile(self) -> Dict[str, Any]:
+        """Get the user's profile data."""
+        return self.profile_data
+
+    def update_profile(self, profile_data: Dict[str, Any]):
+        """Update the user's profile data."""
+        self.profile_data = profile_data
+        self.save_database()
 
 
 class CVQueryEngine:
@@ -591,11 +628,13 @@ class CVAnalysisSystem:
         llm_provider="gemini",
         api_key=None,
         storage_path="cv_database.json",
+        profile_storage_path="profile_database.json",
     ):
         """Initialize the CV analysis system."""
         self.cv_processor = CVProcessor(ocr_engine=ocr_engine)
         self.cv_analyzer = CVAnalyzer(llm_provider=llm_provider, api_key=api_key)
         self.cv_database = CVDatabase(storage_path=storage_path)
+        self.profile_database = ProfileDatabase(storage_path=profile_storage_path)
         self.query_engine = CVQueryEngine(
             self.cv_database, llm_provider=llm_provider, api_key=api_key
         )
@@ -709,6 +748,10 @@ def run_web_interface(llm_provider="gemini", api_key=None):
     # Initialize job analysis history
     if "job_analysis_history" not in st.session_state:
         st.session_state.job_analysis_history = []
+
+    # Initialize profile data from persistent storage
+    if "profile_data" not in st.session_state:
+        st.session_state.profile_data = st.session_state.cv_system.profile_database.get_profile()
 
     st.title("CV Analysis System")
 
@@ -856,16 +899,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
     with tab3:
         st.header("My Profile")
         print(st.session_state)
-        # Initialize profile data in session state if not exists
-        if "profile_data" not in st.session_state:
-            st.session_state.profile_data = {
-                "resume_id": None,
-                "portfolio_link": "",
-                "github_link": "",
-                "linkedin_link": "",
-                "additional_info": ""
-            }
-
+        
         # Profile Resume Upload
         st.subheader("My Resume")
         profile_resume = st.file_uploader(
@@ -875,26 +909,27 @@ def run_web_interface(llm_provider="gemini", api_key=None):
         # Profile Links
         st.subheader("Professional Links")
         st.session_state.profile_data["portfolio_link"] = st.text_input(
-            "Portfolio Link", value=st.session_state.profile_data["portfolio_link"]
+            "Portfolio Link", value=st.session_state.profile_data.get("portfolio_link", "")
         )
         st.session_state.profile_data["github_link"] = st.text_input(
-            "GitHub Link", value=st.session_state.profile_data["github_link"]
+            "GitHub Link", value=st.session_state.profile_data.get("github_link", "")
         )
         st.session_state.profile_data["linkedin_link"] = st.text_input(
-            "LinkedIn Link", value=st.session_state.profile_data["linkedin_link"]
+            "LinkedIn Link", value=st.session_state.profile_data.get("linkedin_link", "")
         )
 
         # Additional Information
         st.subheader("Additional Information")
         st.session_state.profile_data["additional_info"] = st.text_area(
             "Additional Information",
-            value=st.session_state.profile_data["additional_info"],
+            value=st.session_state.profile_data.get("additional_info", ""),
             height=150
         )
 
         # Save Profile Button
         if st.button("Save Profile"):
-            
+            # Save to persistent storage
+            st.session_state.cv_system.profile_database.update_profile(st.session_state.profile_data)
             st.success("Profile saved successfully!")
 
         if profile_resume:
@@ -910,12 +945,15 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                     
                     if cv_id:
                         st.session_state.profile_data["resume_id"] = cv_id
+                        # Save to persistent storage
+                        st.session_state.cv_system.profile_database.update_profile(st.session_state.profile_data)
                         st.success("Your resume has been processed successfully!")
                     else:
                         st.error("Failed to process your resume")
 
                     # Remove the temporary file
                     os.remove(temp_file_path)
+
         # Display analyzed profile information if available
         if st.session_state.profile_data.get("resume_id"):
             profile_cv = st.session_state.cv_system.get_cv_details(
@@ -953,13 +991,13 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                 st.write("**Latest Work Experience**")
                 work_exp = profile_cv.get("work_experience".replace('_', ' ').title(), [])
                 if work_exp:
-                    latest = work_exp[0]
-                    st.write(f"Company: {latest.get('company', 'N/A')}")
-                    st.write(f"Role: {latest.get('role', 'N/A')}")
-                    st.write(f"Duration: {latest.get('duration', 'N/A')}")
-                    st.write("Responsibilities:")
-                    for resp in latest.get("responsibilities", []):
-                        st.write(f"- {resp}")
+                    for latest in work_exp:
+                        st.write(f"Company: {latest.get('company', 'N/A')}")
+                        st.write(f"Role: {latest.get('role', 'N/A')}")
+                        st.write(f"Duration: {latest.get('duration', 'N/A')}")
+                        st.write("Responsibilities:")
+                        for resp in latest.get("responsibilities", []):
+                            st.write(f"- {resp}")
                 else:
                     st.write("No work experience found")
                 
@@ -974,6 +1012,8 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                     st.write(f"Graduation Date: {latest.get('graduation_date', 'N/A')}")
                 else:
                     st.write("No education information found")
+            else:
+                st.warning("Unable to load profile data. Please try uploading your resume again.")
 
     with tab4:
         st.header("Job Analysis")
@@ -1088,69 +1128,77 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                 st.session_state.profile_data["resume_id"]
             )
             
-            # Display editable sections
-            st.subheader("Edit Resume Sections")
-            
-            # Personal Information
-            st.write("Personal Information")
-            personal_info = profile_cv.get("personal_information".replace('_', ' ').title(), {})
-            edited_name = st.text_input("Name", value=personal_info.get("name", ""))
-            edited_email = st.text_input("Email", value=personal_info.get("email", ""))
-            edited_phone = st.text_input("Phone", value=personal_info.get("phone", ""))
-            edited_location = st.text_input("Location", value=personal_info.get("location", ""))
-            
-            # Skills
-            st.write("Skills")
-            skills = profile_cv.get("skills", {})
-            technical_skills = st.text_area(
-                "Technical Skills",
-                value="\n".join(skills.get("technical", [])),
-                height=100
-            )
-            soft_skills = st.text_area(
-                "Soft Skills",
-                value="\n".join(skills.get("soft", [])),
-                height=100
-            )
-            
-            # Work Experience
-            st.write("Work Experience")
-            work_exp = profile_cv.get("work_experience", [])
-            for i, exp in enumerate(work_exp):
-                with st.expander(f"Experience {i+1}"):
-                    exp["company"] = st.text_input("Company", value=exp.get("company", ""))
-                    exp["role"] = st.text_input("Role", value=exp.get("role", ""))
-                    exp["duration"] = st.text_input("Duration", value=exp.get("duration", ""))
-                    exp["responsibilities"] = st.text_area(
-                        "Responsibilities",
-                        value="\n".join(exp.get("responsibilities", [])),
-                        height=100
-                    )
-            
-            # Save Changes Button
-            if st.button("Save Changes"):
-                # Update the CV data
-                updated_cv = {
-                    "personal_information": {
-                        "name": edited_name,
-                        "email": edited_email,
-                        "phone": edited_phone,
-                        "location": edited_location
-                    },
-                    "skills": {
-                        "technical": [s.strip() for s in technical_skills.split("\n") if s.strip()],
-                        "soft": [s.strip() for s in soft_skills.split("\n") if s.strip()]
-                    },
-                    "work_experience": work_exp
-                }
+            if profile_cv:
+                # Display editable sections
+                st.subheader("Edit Resume Sections")
                 
-                # Save to database
-                st.session_state.cv_system.cv_database.add_cv(
-                    st.session_state.profile_data["resume_id"],
-                    updated_cv
+                # Personal Information
+                st.write("Personal Information")
+                personal_info = profile_cv.get("personal_information".replace('_', ' ').title(), {})
+                edited_name = st.text_input("Name", value=personal_info.get("name", ""))
+                edited_email = st.text_input("Email", value=personal_info.get("email", ""))
+                edited_phone = st.text_input("Phone", value=personal_info.get("phone", ""))
+                edited_location = st.text_input("Location", value=personal_info.get("location", ""))
+                
+                # Skills
+                st.write("Skills")
+                skills = profile_cv.get("skills".title(), {})
+                technical_skills = st.text_area(
+                    "Technical Skills",
+                    value="\n".join(skills.get("technical", [])),
+                    height=100
+                )
+                soft_skills = st.text_area(
+                    "Soft Skills",
+                    value="\n".join(skills.get("soft", [])),
+                    height=100
                 )
                 
-                st.success("Resume updated successfully!")
+                # Work Experience
+                st.write("Work Experience")
+                work_exp = profile_cv.get("work_experience".replace('_', ' ').title(), [])
+                for i, exp in enumerate(work_exp):
+                    with st.expander(f"Experience {i+1}"):
+                        exp["company"] = st.text_input("Company", value=exp.get("company", "N/A"), key=f"company_{i}")
+                        exp["role"] = st.text_input("Role", value=exp.get("role", ""), key=f"role_{i}")
+                        exp["duration"] = st.text_input("Duration", value=exp.get("duration", ""), key=f"duration_{i}")
+                        # Convert responsibilities list to string for text area
+                        responsibilities_text = "\n".join(exp.get("responsibilities", []))
+                        edited_responsibilities = st.text_area(
+                            "Responsibilities (one per line)",
+                            value=responsibilities_text,
+                            height=100,
+                            key=f"responsibilities_{i}"
+                        )
+                        # Convert back to list, removing empty lines
+                        exp["responsibilities"] = [r.strip() for r in edited_responsibilities.split("\n") if r.strip()]
+                
+                # Save Changes Button
+                if st.button("Save Changes"):
+                    # Update the CV data
+                    updated_cv = {
+                        "personal_information": {
+                            "name": edited_name,
+                            "email": edited_email,
+                            "phone": edited_phone,
+                            "location": edited_location
+                        },
+                        "skills": {
+                            "technical": [s.strip() for s in technical_skills.split("\n") if s.strip()],
+                            "soft": [s.strip() for s in soft_skills.split("\n") if s.strip()]
+                        },
+                        "work_experience": work_exp
+                    }
+                    
+                    # Save to database
+                    st.session_state.cv_system.cv_database.add_cv(
+                        st.session_state.profile_data["resume_id"],
+                        updated_cv
+                    )
+                    
+                    st.success("Resume updated successfully!")
+            else:
+                st.warning("Unable to load profile data. Please try uploading your resume again.")
 
 
 if __name__ == "__main__":

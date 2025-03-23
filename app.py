@@ -3,6 +3,9 @@ import logging
 import os
 import re
 from typing import Any, Dict, List, Optional
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime
 
 # LLM integration
 import anthropic
@@ -655,6 +658,35 @@ class CVAnalysisSystem:
         return self.cv_database.get_cv(cv_id)
 
 
+def fetch_job_description(url: str) -> str:
+    """Fetch job description from a URL."""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.decompose()
+            
+        # Get text content
+        text = soup.get_text()
+        
+        # Clean up text
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = '\n'.join(chunk for chunk in chunks if chunk)
+        
+        return text
+    except Exception as e:
+        logger.error(f"Error fetching job description: {str(e)}")
+        return ""
+
+
 # Streamlit web interface
 def run_web_interface(llm_provider="gemini", api_key=None):
     """Run the Streamlit web interface for the CV analysis system."""
@@ -673,6 +705,10 @@ def run_web_interface(llm_provider="gemini", api_key=None):
     # Initialize selected CV state
     if "selected_cv" not in st.session_state:
         st.session_state.selected_cv = None
+
+    # Initialize job analysis history
+    if "job_analysis_history" not in st.session_state:
+        st.session_state.job_analysis_history = []
 
     st.title("CV Analysis System")
 
@@ -729,9 +765,50 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                 else:
                     display_text = f"Candidate {cv_id}"
 
-                # Create a clickable link for each CV
-                if st.sidebar.button(display_text, key=f"btn_{cv_id}"):
-                    st.session_state.selected_cv = cv_id
+                # Check if this is the profile resume
+
+                is_profile = cv_id == st.session_state.get("profile_data", {}).get("resume_id", None)
+                
+                # Create a clickable link for each CV with different styling for profile
+                if is_profile:
+                    st.markdown(f"<div style='background-color: #e6ffe6; padding: 10px; border-radius: 5px; margin: 5px 0;'>", unsafe_allow_html=True)
+                    st.markdown("**My Profile Resume:**")
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.button(display_text, key=f"btn_{cv_id}"):
+                            st.session_state.selected_cv = cv_id
+                    with col2:
+                        if st.button("❌", key=f"delete_{cv_id}"):
+                            # Delete from database
+                            del st.session_state.cv_system.cv_database.cvs[cv_id]
+                            st.session_state.cv_system.cv_database.save_database()
+                            
+                            # Clear profile data if this was the profile resume
+                            if st.session_state.profile_data.get("resume_id") == cv_id:
+                                st.session_state.profile_data["resume_id"] = None
+                            
+                            # Clear selected CV if this was selected
+                            if st.session_state.selected_cv == cv_id:
+                                st.session_state.selected_cv = None
+                            
+                            st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        if st.button(display_text, key=f"btn_{cv_id}"):
+                            st.session_state.selected_cv = cv_id
+                    with col2:
+                        if st.button("❌", key=f"delete_{cv_id}"):
+                            # Delete from database
+                            del st.session_state.cv_system.cv_database.cvs[cv_id]
+                            st.session_state.cv_system.cv_database.save_database()
+                            
+                            # Clear selected CV if this was selected
+                            if st.session_state.selected_cv == cv_id:
+                                st.session_state.selected_cv = None
+                            
+                            st.rerun()
         else:
             st.sidebar.write("No CVs processed yet")
 
@@ -778,7 +855,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
 
     with tab3:
         st.header("My Profile")
-        
+        print(st.session_state)
         # Initialize profile data in session state if not exists
         if "profile_data" not in st.session_state:
             st.session_state.profile_data = {
@@ -794,26 +871,6 @@ def run_web_interface(llm_provider="gemini", api_key=None):
         profile_resume = st.file_uploader(
             "Upload your resume", type=["pdf", "docx", "doc"], key="profile_resume"
         )
-        
-        if profile_resume:
-            if st.button("Process My Resume"):
-                with st.spinner("Processing your resume..."):
-                    # Save the uploaded file temporarily
-                    temp_file_path = f"temp_{profile_resume.name}"
-                    with open(temp_file_path, "wb") as f:
-                        f.write(profile_resume.getbuffer())
-
-                    # Process the CV
-                    cv_id = st.session_state.cv_system.process_cv_file(temp_file_path)
-                    
-                    if cv_id:
-                        st.session_state.profile_data["resume_id"] = cv_id
-                        st.success("Your resume has been processed successfully!")
-                    else:
-                        st.error("Failed to process your resume")
-
-                    # Remove the temporary file
-                    os.remove(temp_file_path)
 
         # Profile Links
         st.subheader("Professional Links")
@@ -837,15 +894,115 @@ def run_web_interface(llm_provider="gemini", api_key=None):
 
         # Save Profile Button
         if st.button("Save Profile"):
+            
             st.success("Profile saved successfully!")
+
+        if profile_resume:
+            if st.button("Process My Resume"):
+                with st.spinner("Processing your resume..."):
+                    # Save the uploaded file temporarily
+                    temp_file_path = f"temp_{profile_resume.name}"
+                    with open(temp_file_path, "wb") as f:
+                        f.write(profile_resume.getbuffer())
+
+                    # Process the CV
+                    cv_id = st.session_state.cv_system.process_cv_file(temp_file_path)
+                    
+                    if cv_id:
+                        st.session_state.profile_data["resume_id"] = cv_id
+                        st.success("Your resume has been processed successfully!")
+                    else:
+                        st.error("Failed to process your resume")
+
+                    # Remove the temporary file
+                    os.remove(temp_file_path)
+        # Display analyzed profile information if available
+        if st.session_state.profile_data.get("resume_id"):
+            profile_cv = st.session_state.cv_system.get_cv_details(
+                st.session_state.profile_data["resume_id"]
+            )
+            
+            if profile_cv:
+                st.subheader("Analyzed Profile Information")
+                print("PROFILE" , profile_cv)
+                # Personal Information
+                personal_info = profile_cv.get("personal_information".replace('_', ' ').title(), {})
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("**Personal Information**")
+                    st.write(f"Name: {personal_info.get('name', 'N/A')}")
+                    st.write(f"Email: {personal_info.get('email', 'N/A')}")
+                with col2:
+                    st.write(f"Phone: {personal_info.get('phone', 'N/A')}")
+                    st.write(f"Location: {personal_info.get('location', 'N/A')}")
+                
+                # Skills
+                st.write("**Skills**")
+                skills = profile_cv.get("skills".title(), {})
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("Technical Skills:")
+                    for skill in skills.get("technical", []):
+                        st.write(f"- {skill}")
+                with col2:
+                    st.write("Soft Skills:")
+                    for skill in skills.get("soft", []):
+                        st.write(f"- {skill}")
+                
+                # Latest Work Experience
+                st.write("**Latest Work Experience**")
+                work_exp = profile_cv.get("work_experience".replace('_', ' ').title(), [])
+                if work_exp:
+                    latest = work_exp[0]
+                    st.write(f"Company: {latest.get('company', 'N/A')}")
+                    st.write(f"Role: {latest.get('role', 'N/A')}")
+                    st.write(f"Duration: {latest.get('duration', 'N/A')}")
+                    st.write("Responsibilities:")
+                    for resp in latest.get("responsibilities", []):
+                        st.write(f"- {resp}")
+                else:
+                    st.write("No work experience found")
+                
+                # Latest Education
+                st.write("**Latest Education**")
+                education = profile_cv.get("education_history".replace('_', ' ').title(), [])
+                if education:
+                    latest = education[0]
+                    st.write(f"Institution: {latest.get('institution', 'N/A')}")
+                    st.write(f"Degree: {latest.get('degree', 'N/A')}")
+                    st.write(f"Field: {latest.get('field', 'N/A')}")
+                    st.write(f"Graduation Date: {latest.get('graduation_date', 'N/A')}")
+                else:
+                    st.write("No education information found")
 
     with tab4:
         st.header("Job Analysis")
         
         # Job Description Input
         st.subheader("Job Description")
-        job_url = st.text_input("Job Posting URL (optional)")
-        job_description = st.text_area("Paste Job Description", height=200)
+        
+        # URL input and fetch button
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            job_url = st.text_input("Job Posting URL (optional)")
+        with col2:
+            fetch_button = st.button("Fetch Details", disabled=not job_url)
+            
+        if fetch_button:
+            with st.spinner("Fetching job description..."):
+                fetched_description = fetch_job_description(job_url)
+                if fetched_description:
+                    st.session_state.job_description = fetched_description
+                    st.success("Successfully fetched job description!")
+                else:
+                    st.error("Failed to fetch job description from the URL. Please paste it manually.")
+        
+        # Job description text area
+        job_description = st.text_area(
+            "Paste Job Description",
+            value=st.session_state.get("job_description", ""),
+            height=200
+        )
         
         if st.button("Analyze Job Match"):
             if not job_description:
@@ -877,9 +1034,48 @@ def run_web_interface(llm_provider="gemini", api_key=None):
                     # Get analysis from LLM
                     analysis = st.session_state.cv_system.query_engine.process_query(analysis_prompt)
                     
+                    # Store analysis in history
+                    analysis_entry = {
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "job_url": job_url,
+                        "job_description": job_description,
+                        "analysis": analysis
+                    }
+                    st.session_state.job_analysis_history.append(analysis_entry)
+                    
                     # Display analysis
                     st.subheader("Analysis Results")
                     st.write(analysis)
+        
+        # Display analysis history
+        if st.session_state.job_analysis_history:
+            st.subheader("Previous Analyses")
+            for entry in reversed(st.session_state.job_analysis_history):
+                with st.expander(f"Analysis from {entry['timestamp']}"):
+                    if entry['job_url']:
+                        st.write(f"**Job URL:** {entry['job_url']}")
+                    st.write("**Job Description:**")
+                    st.write(entry['job_description'])
+                    st.write("**Analysis:**")
+                    st.write(entry['analysis'])
+                    
+                    # Download button for each analysis
+                    analysis_text = f"""
+                    Job URL: {entry['job_url']}
+                    Timestamp: {entry['timestamp']}
+                    
+                    Job Description:
+                    {entry['job_description']}
+                    
+                    Analysis:
+                    {entry['analysis']}
+                    """
+                    st.download_button(
+                        label="Download Analysis",
+                        data=analysis_text,
+                        file_name=f"job_analysis_{entry['timestamp'].replace(' ', '_')}.txt",
+                        mime="text/plain"
+                    )
 
     with tab5:
         st.header("Resume Editor")
@@ -897,7 +1093,7 @@ def run_web_interface(llm_provider="gemini", api_key=None):
             
             # Personal Information
             st.write("Personal Information")
-            personal_info = profile_cv.get("personal_information", {})
+            personal_info = profile_cv.get("personal_information".replace('_', ' ').title(), {})
             edited_name = st.text_input("Name", value=personal_info.get("name", ""))
             edited_email = st.text_input("Email", value=personal_info.get("email", ""))
             edited_phone = st.text_input("Phone", value=personal_info.get("phone", ""))
